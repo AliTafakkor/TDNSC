@@ -1,6 +1,10 @@
 function vararginparse(cellarray, reqvarstoparse, opvarstoparse)
+    if(mod(length(cellarray),2))
+        error('Mismatched number of arg names and arg values!')
+    end
+
     if(~isempty(cellarray))
-        inargnames = {cellarray{1:2:end}};
+        inargnames = cellarray(1:2:end);
     else
         inargnames = {};
     end
