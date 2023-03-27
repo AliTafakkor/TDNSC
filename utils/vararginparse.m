@@ -1,6 +1,6 @@
 function vararginparse(cellarray, reqvarstoparse, opvarstoparse)
     if(~isempty(cellarray))
-        inargnames = cellarray{1:2:end};
+        inargnames = {cellarray{1:2:end}};
     else
         inargnames = {};
     end
