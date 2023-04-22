@@ -16,7 +16,7 @@ clear COCHBA TICKLABEL VER a1map;
 global COCHBA TICKLABEL VER a1map;
 
 % load complex colormap
-load a1map_a; a1fig(gcf().Number);
+load a1map_a; %a1fig(gcf().Number);
 
 % load cochlear filter coefficients
 load aud24;
