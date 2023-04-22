@@ -20,7 +20,7 @@ p.data_path = '/Windows/EEGDataset/data';
 p.stimulipath = '~/Workspace/Thesis/analysis/TDNSC/stimuli';
 
 p.subj_ids = [1, 2, 3, 4, 7, 11, 14, 18, 19, 23, 24, 26:37];
-p.n_subjects = length(subj_ids);
+p.n_subjects = length(p.subj_ids);
 p.dvw = false;
 p.pca = false;
 
