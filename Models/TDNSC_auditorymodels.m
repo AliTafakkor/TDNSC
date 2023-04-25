@@ -3,6 +3,7 @@ function varargout = TDNSC_auditorymodels(q, varargin)
 addpath('../utils');
 addpath('./utils')
 addpath('./nsltools');
+
 %% -------------------- Parameters ---------------------
 set_parameters;
 p.savefig = false;
@@ -55,9 +56,12 @@ switch q
     
         varargout{1} = stim; 
 
-    case 'load:cochleograms'
+    case 'load:spec_cochleograms'
         load(fullfile(p.matpath, 'spectrotemporal-features.mat'), 'cochs', 'f', 't');
         varargout = {cochs, t, f};
+    case 'load:NSLfeatures'
+        load(fullfile(p.matpath, 'NSL-features.mat'));
+        varargout = {cochs, time, freq, stm, rate, scale};
 
     case 'align_stimuli'
         vararginparse(varargin, {'stim'}, {});
@@ -114,6 +118,60 @@ switch q
         save(fullfile(p.matpath, 'spectrotemporal-features.mat'), ...
             'cochs', 'f', 't', 'ME');
         varargout = {cochs, ME};
+    
+    case 'nsl:coch+stm'
+        vararginparse(varargin, {'stim'}, {'octshft'})
+        
+        if ~exist('octshft', 'var'), octshft = 0; end;
+    
+        addpath('nsltools/')
+        loadload;
+        paras(4) = octshft;							% octave shift
+        paras(1:2) = paras(1:2) / 2 ^(octshft+1);	% frame size and step
+        
+        rv=2.^(2:1:8);% rate vector (Hz)
+        sv=2.^(-2:.5:3); %scale vector (cycle/octave)
+
+        path = fullfile(p.matpath, 'nsl-corfiles');
+        if ~isfolder(path), mkdir(path); end;
+
+        cochs = nan(p.n_stim, 250, 128);
+        stm = nan(p.n_stim, 250, 128, length(sv), 2*length(rv));
+
+        for i = 1:p.n_stim
+            x = stim(i).sig(:,p.sound_ch);
+            fs = stim(i).fs;
+            if fs ~= 16000
+                x = resample(x, 16000, fs);
+            end
+            
+            x=unitseq(x); % UNITSEQ.m sequence normalization to N(0, 1)
+            
+            aud = wav2aud(x, paras);
+            fname=fullfile(path, sprintf('stim%d.cor',i));
+            cor=aud2cor(aud, paras, rv, sv, fname);
+
+            cochs(i,:,:) = aud;
+            stm(i,:,:,:,:) = permute(cor, [3 4 1 2]);
+        end
+
+        N = 250; %time X freq 
+        time=(1:N)' * paras(1);
+        freq = 440 * 2.^ ([(0:128)-31]/24);	% for 16 kHz 
+        %last channel is lost, 
+        % because of linear differentiation between adjacent channels
+        % see COCHFILT.txt
+        scale=sv;
+        rate=rv;
+               
+%         figure;
+%         imagesc(flipud(aud'), [0 0.5]);
+%         colormap("parula");
+        save(fullfile(p.matpath, 'NSL-features.mat'), ...
+            'cochs', 'freq', 'time', 'stm', 'scale', 'rate', ...
+            '-v7.3');
+        varargout{1} = cochs;
+        varargout{2} = stm;
 
     case 'rdm:features2RDM'
         vararginparse(varargin, {'features', 'featname'}, {'method'})
@@ -146,8 +204,8 @@ switch q
         save(fullfile(p.matpath, fname), 'rdm');
         varargout{1} = rdm;
 
-    case 'rdm:timewindowed-features2RDM' % TODO
-        vararginparse(varargin, {'features', 't', 'featname'}, {'method'})
+    case 'rdm:timewindowed-coch2RDM' 
+        vararginparse(varargin, {'coch', 't'}, {'method'})
         % features are expected to be a matrix of size: n_stim x any size
         % and dimension for feature
         % 
@@ -157,21 +215,27 @@ switch q
             method = 'euclidean';
         end
 
-        rdm = zeros(p.n_timepoints,p.n_stim,p.n_stim);
-        t = t *1000;
+        RDMs = zeros(p.n_timepoints,p.n_stim,p.n_stim);
+        %t = t *1000;
 
-
-        for tp = 1:p.n_timepoints
-            temp = p.time(tp)-t;
-            win_ind
-            features_win = features(:,:,win_ind);
-            features = reshape(features_win, p.n_stim, []);
+        parfor tp = 1:p.n_timepoints
+            if p.time(tp)<=0
+                win_ind = 1:length(t); % use whole cochleagram
+            elseif p.time(tp)<1000
+                [~,ind] = min(abs(t-p.time(tp)));
+                win_ind = 1:ind;
+            else
+                win_ind = 1:length(t); % use whole cochleagram
+            end
             
+            coch_win = coch(:,win_ind,:);
+            features = reshape(coch_win, p.n_stim, []);
                 
             switch method
                 case 'pearson'
                     rdm = 1-corrcoef(features');
                 case 'euclidean'
+                    rdm = zeros(p.n_stim);
                     for i = 1:p.n_stim
                         for j= i+1:p.n_stim
                             rdm(i,j) = sum((features(i,:,:)-features(j,:,:)).^2, 'all');
@@ -180,10 +244,61 @@ switch q
                     rdm = sqrt(rdm);
                     rdm = rdm + rdm';
             end
+
+            RDMs(tp,:,:) = rdm;
         end
-        fname = sprintf('rdm_timewindowed_%s_%c.mat', featname, method(1));
-        save(fullfile(p.matpath, fname), 'rdm');
-        varargout{1} = rdm;
+        fname = sprintf('rdm_timewindowed_cochs_%c.mat', method(1));
+        save(fullfile(p.matpath, fname), 'RDMs');
+        varargout{1} = RDMs;
+
+    case 'rdm:timewindowed-stm2RDM' % TODO
+        vararginparse(varargin, {'stm', 't'}, {'method'})
+        % features are expected to be a matrix of size: n_stim x any size
+        % and dimension for feature
+        % 
+
+        % Default for optional argins
+        if ~exist('method')
+            method = 'euclidean';
+        end
+
+        RDMs = zeros(p.n_timepoints,p.n_stim,p.n_stim);
+
+        for tp = 1:p.n_timepoints
+            if p.time(tp)<=0
+                win_ind = 1:length(t); % use whole cochleagram
+            elseif p.time(tp)<1000
+                [~,ind] = min(abs(t-p.time(tp)));
+                win_ind = 1:ind;
+            else
+                win_ind = 1:length(t); % use whole cochleagram
+            end
+            
+            stm_win = stm(:,win_ind,:,:,:);
+            features = reshape(stm_win, p.n_stim, []);
+                
+            switch method
+                case 'pearson'
+                    rdm = 1-corrcoef(features');
+                case 'euclidean'
+                    rdm = zeros(p.n_stim);
+                    for i = 1:p.n_stim
+                        for j= i+1:p.n_stim
+                            rdm(i,j) = sum((features(i,:,:)-features(j,:,:)).^2, 'all');
+                        end
+                    end
+                    rdm = sqrt(rdm);
+                    rdm = rdm + rdm';
+                otherwise
+                   rdm = zeros(p.n_stim);
+            end
+
+            RDMs(tp,:,:) = rdm;
+        end
+        fname = sprintf('rdm_timewindowed_stm_%c.mat', method(1));
+        save(fullfile(p.matpath, fname), 'RDMs');
+        varargout{1} = RDMs;
+
     case 'plot:stimuli_overview'
         vararginparse(varargin, {'stim'}, {});
 
@@ -217,7 +332,7 @@ switch q
         %saveas(f,'./overview.svg')
         %close(f);
 
-    case 'plot:chocleograms' % TODO
+    case 'plot:cochleograms' % TODO
         vararginparse(varargin, {'cochs'}, {})
         
         f=figure;
@@ -235,4 +350,6 @@ switch q
                 ylabel('freq (Hz)');
             end
         end
+    otherwise
+        error('Undefined command!')
 end
