@@ -238,7 +238,7 @@ switch q
                     rdm = zeros(p.n_stim);
                     for i = 1:p.n_stim
                         for j= i+1:p.n_stim
-                            rdm(i,j) = sum((features(i,:,:)-features(j,:,:)).^2, 'all');
+                            rdm(i,j) = sum((features(i,:)-features(j,:)).^2, 'all');
                         end
                     end
                     rdm = sqrt(rdm);
@@ -258,23 +258,55 @@ switch q
         % 
 
         % Default for optional argins
-        if ~exist('method')
-            method = 'euclidean';
-        end
+        if ~exist('method','var'), method = 'euclidean'; end
 
         RDMs = zeros(p.n_timepoints,p.n_stim,p.n_stim);
+        % Var after the temporal trimming
+        % tic
+        % stm = var(stm, [], [4,5]); % Check this
+        % toc
+        
+        features = reshape(stm, p.n_stim, []);
+        disp('full')  
+        switch method
+            case 'pearson'
+                full_rdm = 1-corrcoef(features');
+            case 'euclidean'
+                full_rdm = zeros(p.n_stim);
+                tic
+                for i = 1:p.n_stim
+                    for j= i+1:p.n_stim
+                        d = features(i,:)-features(j,:);
+                        full_rdm(i,j) = d*d';
+                    end
+                end
+                toc
+                full_rdm = sqrt(full_rdm);
+                full_rdm = full_rdm + full_rdm';
+            otherwise
+               full_rdm = zeros(p.n_stim);
+        end
+
 
         for tp = 1:p.n_timepoints
+            
+            fprintf('%.2f \n', tp/p.n_timepoints*100)
+
             if p.time(tp)<=0
                 win_ind = 1:length(t); % use whole cochleagram
+                RDMs(tp,:,:) = full_rdm;
+                continue;
             elseif p.time(tp)<1000
                 [~,ind] = min(abs(t-p.time(tp)));
                 win_ind = 1:ind;
             else
                 win_ind = 1:length(t); % use whole cochleagram
+                RDMs(tp,:,:) = full_rdm;
+                continue
             end
             
             stm_win = stm(:,win_ind,:,:,:);
+           
             features = reshape(stm_win, p.n_stim, []);
                 
             switch method
@@ -284,7 +316,8 @@ switch q
                     rdm = zeros(p.n_stim);
                     for i = 1:p.n_stim
                         for j= i+1:p.n_stim
-                            rdm(i,j) = sum((features(i,:,:)-features(j,:,:)).^2, 'all');
+                            d = features(i,:)-features(j,:);
+                            rdm(i,j) = d*d';
                         end
                     end
                     rdm = sqrt(rdm);
