@@ -1,5 +1,6 @@
 p.n_stim = 80;
 p.n_cat = 4;
+p.categories = {'animals', 'people', 'objects', 'scenes'};
 p.cat_names = {'Animals', 'People', 'Objects', 'Scenes'};
 p.n_withincat = 20;
 p.fs = 512;
