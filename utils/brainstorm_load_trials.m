@@ -1,12 +1,13 @@
-function [trials, time] = brainstorm_load_trials(trialsdir, condition, channelname)
+function [trials, time] = brainstorm_load_trials(trialsdir, condition, channelname, verbose)
 % BRAINSTORM_LOAD_TRIALS Loads all trials for a specified subject and condition, 
 % excludes bad trials, and loads data for the specified channels only.
 %
 % INPUTS:
-%   trialsdir   - String specifying the path to the directory containing the trial .mat files.
-%   condition   - Integer specifying the condition for which to load the trials.
-%   channelname - Cell array of strings specifying the names of channels to load,
-%                 e.g., {'MEG', 'EEG', 'A', 'B'}.
+%   trialsdir   (required) - String specifying the path to the directory containing the trial .mat files.
+%   condition   (required) - Integer specifying the condition for which to load the trials.
+%   channelname (required) - Cell array of strings specifying the names of channels to load,
+%                            e.g., {'MEG', 'EEG', 'A', 'B'}.
+%   verbose     (optional) - Integer specifying verbose level, default 
 %
 % OUTPUTS:
 %   trials      - 3D array (channels x time x trials) containing the loaded trials data after excluding bad trials.
@@ -23,6 +24,9 @@ function [trials, time] = brainstorm_load_trials(trialsdir, condition, channelna
 %
 %   Ali Tafakkor (atafakko@uwo.ca), University of Western Ontario
 
+% Set default value of verbose to zero (no messages)
+if nargin==3, verbose = 0; end
+
 % Get subject directory
 [subjdir, ~, ~] = fileparts(trialsdir);
 
@@ -30,7 +34,8 @@ function [trials, time] = brainstorm_load_trials(trialsdir, condition, channelna
 try 
     channelfile = dir(fullfile(trialsdir,'channel*.mat'));
     Channel = load(fullfile(channelfile.folder,channelfile.name));
-    disp('subject-specific channel found!');
+    % Message
+    if verbose, disp('subject-specific channel found!'); end
 catch
     channelfile = dir(fullfile(subjdir,'@default_study','channel*.mat'));
     Channel = load(fullfile(subjdir,'@default_study',channelfile.name));
@@ -85,16 +90,3 @@ end
 
 % Convert to matrix
 trials = single(cat(3,trials{:}));
-
-
-
-
-
-
-
-
-
-
-
-
-
