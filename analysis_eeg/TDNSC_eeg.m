@@ -124,7 +124,7 @@ switch q
     fprintf('Finished at %s\n', datetime)
     
     case 'analysis:decode_multiple'
-    % Decodes epoched data for multiple subjects given a subject list, or all subjects with availabel data by default
+    % Decodes epoched data for multiple subjects given a subject list, or all subjects with available data by default
     % (pairwise and temporal generalization analysis)
     %
     % INPUTS:
@@ -157,6 +157,124 @@ switch q
     
     % Run decode_single on each subject
     for s = subjects, TDNSC_eeg('analysis:decode_single', 'subj_id', s, args{:}); end
+
+    case 'analysis:decoding2RDM_single'
+    % Converts pairwise decodings to RDMs for a single subject
+    %
+    % INPUTS:
+    %   subj_id     (required) - Integer specifying subject id
+    %
+    %   decodingdir (optional) - String specifying the input folder name, default is 'decodings'
+    %   rdmdir      (optional) - String specifying the output folder name, default is 'rdms'
+    %   level       (optional) - String specifying decoding level 'stimuli' or 'category' of the sounds
+    %   dopca       (optional) - Logical (true/false) specifying PCA before decoding
+    %   dvw         (optional) - Logical (true/false) specifying decision value weighted accuracy
+    %   nperm       (optional) - Integer specifying the number of permutations for pseudo trials
+    %   kfold       (optional) - Integer specifing number of pseudo trials
+    %   dsfactor    (optional) - Integer specifying the downsampling factor
+    %   
+    %   NOTES: 
+    %       - Where not specified, default value for optional input arguments is '*' meaning any value will be matched.
+    
+    % Parse arguments
+    vararginparse(varargin, {'subj_id'}, {'decodingdir', 'rdmdir', 'level', 'dopca', 'dvw', 'nperm', 'kfold', 'dsfactor'}, ...
+                                         {'decodings', 'rdms', '*', '*', '*', '*', '*', '*', '*', '*'})
+
+    % Path to epoched data of the subject
+    decodingdir = fullfile(p.path.data, sprintf('S%02d', subj_id), 'eeg', decodingdir);
+    % Check if the directory exists
+    if ~isfolder(decodingdir), error('Decoding data for subject S%02d could not be found under the path: %s', subj_id, decodingdir); end
+    
+    % Path to output folder
+    rdmdir = fullfile(p.path.data, sprintf('S%02d', subj_id), 'eeg', rdmdir);
+    % Create output directory if it doesn't exits
+    if ~isfolder(rdmdir), mkdir(rdmdir); end
+
+    % Message
+    fprintf("Generating RDMs form decodings for subject S%02d.\n", subj_id);
+
+    % Search pattern
+    filepattern = fullfile(decodingdir, sprintf('decodings_level-%s_tempgen-0_pca-%s_dvw-%s_nperm-%s_folds-%s_dsfactor-%s.mat', ...
+                                         level, dopca, dvw, nperm, kfold, dsfactor));
+    files = dir(filepattern);
+    
+    % Throw error if no file were found
+    if isempty(files), error("No decoding files found for subject 'S%02d' with specified parameters!", subj_id); end
+
+    % Convert and save files
+    for i = 1:length(files)
+        % Full file path
+        ffpath = fullfile(files(i).folder, files(i).name);
+        
+        % Message
+        fprintf("Decoding file found: '%s'.\n", ffpath)
+
+        % Load decoding struct
+        D = load(ffpath, 'D').('D');
+        % Get labels, decodings, and time
+        labels = D.condlabel;
+        d = D.d;
+        time = D.time;
+        % Get number of timepoints and conditions
+        ntp = size(d,1);
+        ncond = length(labels);
+
+        % Initialize
+        RDMs = zeros(ncond, ncond, ntp);
+
+        % Convert RDM for each time point
+        for t = 1:ntp-1
+            RDM = squareform(d(i,:));
+            % Reorder conditions in the RDM
+            RDMs(:,:,t) = TDNSC_reorder_RDM(p, RDM);
+        end
+        [RDMs(:,:,ntp), labels] = TDNSC_reorder_RDM(p, squareform(d(ntp,:)), labels);
+
+        % Generate filename
+        rdmfile = strsplit(files(i).name, '_');
+        rdmfile{1} = 'rdms';
+        rdmfile = strjoin(rdmfile, '_');
+        % Save output
+        save(fullfile(rdmdir, rdmfile), 'RDMs', 'labels', 'time');
+
+        % Message
+        fprintf("RDMs file saved: '%s'.\n", fullfile(rdmdir, rdmfile))
+    end
+    
+    case 'analysis:decoding2RDM_multiple'
+    % Converts pairwise decodings to RDMs for multiple subjects given a subject list,
+    % or all subjects with available data by default
+    %
+    % INPUTS:
+    %   subjects    (optional) - List of subjects' id, default is all subjects with epoched eeg data
+    %   decodingdir (optional) - String specifying the input folder name, default is 'decodings'
+    %   rdmdir      (optional) - String specifying the output folder name, default is 'rdms'
+    %   level       (optional) - String specifying decoding level 'stimuli' or 'category' of the sounds
+    %   dopca       (optional) - Logical (true/false) specifying PCA before decoding
+    %   dvw         (optional) - Logical (true/false) specifying decision value weighted accuracy
+    %   nperm       (optional) - Integer specifying the number of permutations for pseudo trials
+    %   kfold       (optional) - Integer specifing number of pseudo trials
+    %   dsfactor    (optional) - Integer specifying the downsampling factor
+    %   
+    %   NOTES: 
+    %       - Where not specified, default value for optional input arguments is '*' meaning any value will be matched.
+    
+    % Parse arguments
+    vararginparse(varargin, {}, {'subjects', 'decodingdir', 'rdmdir', 'level', 'dopca', 'dvw', 'nperm', 'kfold', 'dsfactor'}, ...
+                                {p.subj.epoched_id, 'decodings', 'rdms', '*', '*', '*', '*', '*', '*', '*', '*'})
+    
+    args = {'decodingdir', decodingdir, ...
+            'rdmdir',      rdmdir, ...
+            'level',       level, ...
+            'dopca',       dopca, ...
+            'dvw',         dvw, ...
+            'nperm',       nperm, ...
+            'kfold',       kfold, ...
+            'dsfactor',    dsfactor ...
+            };
+    
+    % Run decoding2RDM_single on each subject
+    for s = subjects, TDNSC_eeg('analysis:decoding2RDM_single', 'subj_id', s, args{:}); end
 
     case 'dir2targz'
     % Turns an 'eeg' sub-directory into tar file and compresses, 
