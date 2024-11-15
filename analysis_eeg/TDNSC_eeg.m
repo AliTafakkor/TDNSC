@@ -180,7 +180,7 @@ switch q
     vararginparse(varargin, {'subj_id'}, {'decodingdir', 'rdmdir', 'level', 'dopca', 'dvw', 'nperm', 'kfold', 'dsfactor'}, ...
                                          {'decodings', 'rdms', '*', '*', '*', '*', '*', '*', '*', '*'})
 
-    % Path to epoched data of the subject
+    % Path to decoding results for the subject
     decodingdir = fullfile(p.path.data, sprintf('S%02d', subj_id), 'eeg', decodingdir);
     % Check if the directory exists
     if ~isfolder(decodingdir), error('Decoding data for subject S%02d could not be found under the path: %s', subj_id, decodingdir); end
@@ -224,7 +224,7 @@ switch q
 
         % Convert RDM for each time point
         for t = 1:ntp-1
-            RDM = squareform(d(i,:));
+            RDM = squareform(d(t,:));
             % Reorder conditions in the RDM
             RDMs(:,:,t) = TDNSC_reorder_RDM(p, RDM);
         end
@@ -261,7 +261,7 @@ switch q
     
     % Parse arguments
     vararginparse(varargin, {}, {'subjects', 'decodingdir', 'rdmdir', 'level', 'dopca', 'dvw', 'nperm', 'kfold', 'dsfactor'}, ...
-                                {p.subj.epoched_id, 'decodings', 'rdms', '*', '*', '*', '*', '*', '*', '*', '*'})
+                                {p.subj.decodings_id, 'decodings', 'rdms', '*', '*', '*', '*', '*', '*', '*', '*'})
     
     args = {'decodingdir', decodingdir, ...
             'rdmdir',      rdmdir, ...
@@ -275,6 +275,113 @@ switch q
     
     % Run decoding2RDM_single on each subject
     for s = subjects, TDNSC_eeg('analysis:decoding2RDM_single', 'subj_id', s, args{:}); end
+    
+    case 'analysis:rdm_maskavg_single'
+    % Calculates average of the RDMs' elements within a mask through time 
+    % for a given subject and saves it in the RDMs file with the specified name.
+    %
+    % INPUTS:
+    %   subj_id   (required) - Integer specifying subject id.
+    %   mask      (required) - 2D Binary matrix specifying the mask to average
+    %                          within (must be the same size as the RDM).
+    %   varname   (required) - String specifying the name of timeseries to save.
+    %
+    %   rdmsdir   (optional) - String specifying the data folder name, default is 'rdms'
+    %   level     (optional) - Decoding 'stimuli' or 'category' of the sounds, default is 'stimuli'
+    %   dopca     (optional) - Logical (true/false) specifying PCA before decoding, default is false
+    %   dvw       (optional) - Logical (true/false) specifying decision value weighted accuracy, default is false
+    %   nperm     (optional) - Integer specifying the number of permutations for pseudo trials, default is 100
+    %   kfold     (optional) - Integer specifing number of pseudo trials, default is 5
+    %   dsfactor  (optional) - Integer specifying the downsampling factor, default is 1 (no down sampling)
+
+    % Parse arguments
+    vararginparse(varargin, {'subj_id', 'mask', 'varname'}, ...
+                  {'rdmsdir', 'level', 'dopca', 'dvw', 'nperm', 'kfold', 'dsfactor'}, ...
+                  {'rdms', 'stimuli', false, false, 100, 5, 1})
+
+    % Path to rdms of the subject
+    rdmsdir = fullfile(p.path.data, sprintf('S%02d', subj_id), 'eeg', rdmsdir);
+    % Check if the directory exists
+    if ~isfolder(rdmsdir), error('RDM data for subject S%02d could not be found under the path: %s', subj_id, rdmsdir); end
+
+    % Message
+    fprintf("Calculating RDM grand average for subject S%02d.\n", subj_id);
+
+    % Search pattern
+    filepattern = fullfile(rdmsdir, sprintf('rdms_level-%s_tempgen-0_pca-%d_dvw-%d_nperm-%d_folds-%d_dsfactor-%d.mat', ...
+                                         level, dopca, dvw, nperm, kfold, dsfactor));
+    files = dir(filepattern);
+    
+    % Throw error if no file were found
+    if isempty(files), error("No RDM files found for subject 'S%02d' with specified parameters!", subj_id); end
+
+    % Calculate grand avg and save to files
+    for i = 1:length(files)
+        % Full file path
+        ffpath = fullfile(files(i).folder, files(i).name);
+        
+        % Message
+        fprintf("RDM file found: '%s'.\n", ffpath)
+
+        % Load RDMs
+        RDMs = load(ffpath, 'RDMs').('RDMs');
+
+        % Check if the mask matches the RDMs
+        if size(mask) ~= size(RDMs, [1,2]) 
+            error("The size of the mask doesn't match the RDMs!")
+        end
+
+        % Calculate average within the mask
+        RDMs_masked = RDMs.*mask;
+        avg = sum(RDMs_masked, [1, 2])./sum(mask,"all");
+
+        % To save the average with the given name
+        dataStruct.(varname) = squeeze(avg); 
+        
+        % Save (append) to RDMs file
+        save(ffpath, '-struct', 'dataStruct', '-append')
+
+        % Message
+        fprintf("Masked average ('%s') appended to RDM file: '%s'.\n", varname, ffpath)
+    end
+    
+    case 'analysis:rdm_maskavg_multiple'
+    % Calculates average of the RDMs' elements within a mask through time 
+    % for multiple subjects given a subject list, or all subjects with available
+    % data by default.
+    %
+    % INPUTS:
+    %   subj_id   (required) - Integer specifying subject id.
+    %   mask      (required) - 2D Binary matrix specifying the mask to average
+    %                          within (must be the same size as the RDM).
+    %   varname   (required) - String specifying the name of timeseries to save.
+    %
+    %   rdmsdir   (optional) - String specifying the data folder name, default is 'rdms'
+    %   level     (optional) - Decoding 'stimuli' or 'category' of the sounds, default is 'stimuli'
+    %   dopca     (optional) - Logical (true/false) specifying PCA before decoding, default is false
+    %   dvw       (optional) - Logical (true/false) specifying decision value weighted accuracy, default is false
+    %   nperm     (optional) - Integer specifying the number of permutations for pseudo trials, default is 100
+    %   kfold     (optional) - Integer specifing number of pseudo trials, default is 5
+    %   dsfactor  (optional) - Integer specifying the downsampling factor, default is 1 (no down sampling)
+
+    % Parse arguments
+    vararginparse(varargin, {'mask', 'varname'}, ...
+                  {'subjects', 'rdmsdir', 'level', 'dopca', 'dvw', 'nperm', 'kfold', 'dsfactor'}, ...
+                  {p.subj.rdms_id, 'rdms', 'stimuli', false, false, 100, 5, 1})
+    
+    args = {'mask',     mask, ...
+            'varname',  varname, ...
+            'rdmsdir',  rdmsdir, ...
+            'level',    level, ...
+            'dopca',    dopca, ...
+            'dvw',      dvw, ...
+            'nperm',    nperm, ...
+            'kfold',    kfold, ...
+            'dsfactor', dsfactor ...
+            };
+        
+    % Run rdm_maskavg_single for each subject
+    for s = subjects, TDNSC_eeg('analysis:rdm_maskavg_single', 'subj_id', s, args{:}); end
 
     case 'dir2targz'
     % Turns an 'eeg' sub-directory into tar file and compresses, 
