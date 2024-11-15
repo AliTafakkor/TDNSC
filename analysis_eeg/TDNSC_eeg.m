@@ -342,7 +342,7 @@ switch q
         save(ffpath, '-struct', 'dataStruct', '-append')
 
         % Message
-        fprintf("Masked average ('%s') appended to RDM file: '%s'.\n", varname, ffpath)
+        fprintf("Masked average ('%s') appended to RDM file: '%s'.\n\n", varname, ffpath)
     end
     
     case 'analysis:rdm_maskavg_multiple'
@@ -382,6 +382,69 @@ switch q
         
     % Run rdm_maskavg_single for each subject
     for s = subjects, TDNSC_eeg('analysis:rdm_maskavg_single', 'subj_id', s, args{:}); end
+
+    case 'load:var_multiple'
+    % Loads a variable stored in .mat files matching a pattern across
+    % multiple subjects either given by a list, or found automatically.
+    %
+    % INPUTS:
+    %   pattern  (required) - String specifying the pattern of .mat files to match 
+    %                          (including intended subdirectories of subject folder).
+    %   varname  (required) - String specifying the name of timeseries to save.
+    %   
+    %   subjects (optional) - List of integers specifying subject ids.
+    %
+    % OUTPUTS:
+    %   varscell            - Cell array holding all loaded variables
+    %   files               - Corresponding files struct
+    %                         (showing from which file a variable was loaded) 
+    
+    % Parse arguments
+    vararginparse(varargin, {'pattern', 'varname'}, {'subjects'}, {[]})
+
+    % Check inputs 
+    [~,~,ext] = fileparts(pattern);
+    if ~strcmp(ext,'.mat'), error("Pattern must have a .mat extention!"); end
+
+    if isempty(subjects)
+        % Find files for all subjects
+        ffpattern = fullfile(p.path.data, 'S*', pattern);
+        files = dir(ffpattern);
+    else
+        % Initializing the files struct
+        files = dir('');
+        % Find files for specified subjects
+        for s = subjects
+            % Find files for subject s
+            ffpattern = fullfile(p.path.data, sprintf('S%02d', s), pattern);
+            files_sub = dir(ffpattern);
+            % Check if any files were found for the subject
+            if isempty(files_sub)
+                error("No files found for subject 'S%02d' matching pattern: %s.", s, pattern);
+            end
+            % Concatenate to all files
+            files = [files; files_sub];
+        end
+    end
+
+    % Check and throw error if no file matched the pattern
+    if isempty(files), error("No files were found matching the specified pattern!"); end
+
+    % Initialize variable cell array
+    varscell = cell(1,length(files));
+    % Load variables from file
+    for i = 1:length(files)
+        ffpath = fullfile(files(i).folder, files(i).name);
+        % Load variable from the mat file
+        try
+            varscell{i} = load(ffpath, varname).(varname);
+        catch
+            warning("Variable '%s' was not found in file '%s' (skipping)!", varname, ffpath);
+            varscell{i} = [];
+        end
+    end
+
+    varargout = {varscell, files};
 
     case 'dir2targz'
     % Turns an 'eeg' sub-directory into tar file and compresses, 
